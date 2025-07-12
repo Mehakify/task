@@ -7,73 +7,45 @@ import { TaskList } from '@/components/tasks/task-list';
 import { type Task } from '@/types';
 import { useAuth } from '@/context/auth-provider';
 import { PlusCircle } from 'lucide-react';
-
-// Mock data - in a real app, this would come from a database.
-const initialTasks: Task[] = [
-  {
-    id: '1',
-    title: 'Set up development environment',
-    notes: 'Install Node.js, Next.js, and Tailwind CSS.',
-    dueDate: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString(),
-    completed: true,
-    subtasks: [
-      { id: 's1-1', text: 'Install Node.js', completed: true },
-      { id: 's1-2', text: 'Create Next.js app', completed: true },
-    ],
-    userId: 'mock-user',
-  },
-  {
-    id: '2',
-    title: 'Create UI components',
-    notes: 'Build reusable components using shadcn/ui.',
-    dueDate: new Date(new Date().setDate(new Date().getDate() + 3)).toISOString(),
-    completed: false,
-    subtasks: [
-      { id: 's2-1', text: 'Button component', completed: true },
-      { id: 's2-2', text: 'Card component', completed: false },
-      { id: 's2-3', text: 'Dialog component', completed: false },
-    ],
-    userId: 'mock-user',
-  },
-  {
-    id: '3',
-    title: 'Implement authentication',
-    notes: 'Add Google and anonymous sign-in.',
-    dueDate: new Date(new Date().setDate(new Date().getDate() -1)).toISOString(),
-    completed: false,
-    subtasks: [],
-    userId: 'mock-user',
-  },
-];
+import { db } from '@/lib/firebase';
+import { collection, doc, addDoc, getDocs, updateDoc, deleteDoc, query, where, onSnapshot, serverTimestamp, writeBatch } from 'firebase/firestore';
 
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const { user } = useAuth();
-  
-  // In a real app, you would fetch tasks for the current user.
-  // Here we'll just filter the mock data.
-  // We also use a localStorage-based persistence layer for a better demo experience.
+  const [loadingTasks, setLoadingTasks] = useState(true);
+
   useEffect(() => {
-    if (typeof window !== 'undefined' && user) {
-        const storedTasks = localStorage.getItem(`tasks_${user.uid}`);
-        if (storedTasks) {
-            setTasks(JSON.parse(storedTasks));
-        } else {
-            // For demo, we assign mock data if no stored data exists.
-            const userTasks = initialTasks.map(t => ({...t, userId: user.uid}));
-            setTasks(userTasks);
-        }
-    }
+    if (!user) {
+      setLoadingTasks(false);
+      return;
+    };
+
+    setLoadingTasks(true);
+    const tasksCollectionRef = collection(db, 'tasks');
+    const q = query(tasksCollectionRef, where('userId', '==', user.uid));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const userTasks: Task[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        userTasks.push({ 
+            id: doc.id,
+            // Convert Firestore Timestamps to ISO strings
+            dueDate: data.dueDate?.toDate ? data.dueDate.toDate().toISOString() : new Date().toISOString(),
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
+            ...data
+         } as Task);
+      });
+      setTasks(userTasks);
+      setLoadingTasks(false);
+    });
+
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
   }, [user]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && user) {
-        localStorage.setItem(`tasks_${user.uid}`, JSON.stringify(tasks));
-    }
-  }, [tasks, user]);
-
 
   const handleOpenCreateForm = () => {
     setEditingTask(null);
@@ -85,46 +57,55 @@ export default function DashboardPage() {
     setIsFormOpen(true);
   };
 
-  const handleSaveTask = (taskData: Omit<Task, 'id' | 'userId'>, id?: string) => {
+  const handleSaveTask = async (taskData: Omit<Task, 'id' | 'userId'>, id?: string) => {
     if (!user) return;
+    
+    // Firestore converts Date objects to Timestamps, so we send the date object directly
+    const dataToSave = {
+        ...taskData,
+        dueDate: new Date(taskData.dueDate),
+    };
+
     if (id) {
       // Update existing task
-      setTasks(tasks.map((t) => (t.id === id ? { ...t, ...taskData, id } : t)));
+      const taskDocRef = doc(db, 'tasks', id);
+      await updateDoc(taskDocRef, dataToSave);
     } else {
       // Create new task
-      const newTask: Task = {
-        ...taskData,
-        id: crypto.randomUUID(),
+      const tasksCollectionRef = collection(db, 'tasks');
+      await addDoc(tasksCollectionRef, {
+        ...dataToSave,
         userId: user.uid,
-      };
-      setTasks([newTask, ...tasks]);
+        createdAt: serverTimestamp(),
+      });
     }
   };
 
-  const handleDeleteTask = (id: string) => {
-    setTasks(tasks.filter((t) => t.id !== id));
+  const handleDeleteTask = async (id: string) => {
+    const taskDocRef = doc(db, 'tasks', id);
+    await deleteDoc(taskDocRef);
   };
   
-  const handleUpdateTaskCompletion = (id: string, completed: boolean) => {
-     setTasks(tasks.map((t) => (t.id === id ? { ...t, completed } : t)));
+  const handleUpdateTaskCompletion = async (id: string, completed: boolean) => {
+     const taskDocRef = doc(db, 'tasks', id);
+     await updateDoc(taskDocRef, { completed });
   };
   
-  const handleUpdateSubtask = (taskId: string, subtaskId: string, completed: boolean) => {
-    setTasks(tasks.map(task => {
-        if (task.id === taskId) {
-            const updatedSubtasks = task.subtasks.map(subtask => 
-                subtask.id === subtaskId ? { ...subtask, completed } : subtask
-            );
-            const allSubtasksCompleted = updatedSubtasks.every(st => st.completed);
-            
-            return {
-                ...task,
-                subtasks: updatedSubtasks,
-                completed: updatedSubtasks.length > 0 ? allSubtasksCompleted : task.completed,
-            };
-        }
-        return task;
-    }));
+  const handleUpdateSubtask = async (taskId: string, subtaskId: string, completed: boolean) => {
+    const taskToUpdate = tasks.find(t => t.id === taskId);
+    if (!taskToUpdate) return;
+    
+    const updatedSubtasks = taskToUpdate.subtasks.map(subtask => 
+        subtask.id === subtaskId ? { ...subtask, completed } : subtask
+    );
+
+    const allSubtasksCompleted = updatedSubtasks.every(st => st.completed);
+    
+    const taskDocRef = doc(db, 'tasks', taskId);
+    await updateDoc(taskDocRef, {
+        subtasks: updatedSubtasks,
+        completed: updatedSubtasks.length > 0 ? allSubtasksCompleted : taskToUpdate.completed,
+    });
   };
 
   const sortedTasks = useMemo(() => {
@@ -144,21 +125,30 @@ export default function DashboardPage() {
           Create Task
         </Button>
       </div>
-
-      <TaskList 
-        tasks={sortedTasks} 
-        onEdit={handleOpenEditForm} 
-        onDelete={handleDeleteTask}
-        onUpdateCompletion={handleUpdateTaskCompletion}
-        onUpdateSubtask={handleUpdateSubtask}
-      />
-
-      {tasks.length === 0 && (
-         <div className="text-center py-12 border-2 border-dashed rounded-lg">
-            <h3 className="text-lg font-medium text-muted-foreground">No tasks yet.</h3>
-            <p className="text-sm text-muted-foreground">Click "Create Task" to get started.</p>
+      
+      {loadingTasks ? (
+         <div className="text-center py-12">
+            <p className="text-muted-foreground">Loading tasks...</p>
          </div>
+      ) : (
+        <>
+            <TaskList 
+                tasks={sortedTasks} 
+                onEdit={handleOpenEditForm} 
+                onDelete={handleDeleteTask}
+                onUpdateCompletion={handleUpdateTaskCompletion}
+                onUpdateSubtask={handleUpdateSubtask}
+            />
+
+            {tasks.length === 0 && (
+                <div className="text-center py-12 border-2 border-dashed rounded-lg">
+                    <h3 className="text-lg font-medium text-muted-foreground">No tasks yet.</h3>
+                    <p className="text-sm text-muted-foreground">Click "Create Task" to get started.</p>
+                </div>
+            )}
+        </>
       )}
+
 
       <TaskForm
         isOpen={isFormOpen}

@@ -12,6 +12,7 @@ export interface Task {
   completed: boolean;
   subtasks: Subtask[];
   userId: string;
+  createdAt: string; // Storing as ISO string
 }
 
 export type TaskStatus = 'Pending' | 'Complete' | 'Not Complete';
