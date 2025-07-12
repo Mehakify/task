@@ -6,6 +6,9 @@ import { useAuth } from '@/context/auth-provider';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Logo } from '@/components/icons/logo';
+import { isConfigValid } from '@/lib/firebase';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Terminal } from 'lucide-react';
 
 const GoogleIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="24px" height="24px" {...props}>
@@ -50,11 +53,20 @@ export default function LoginPage() {
                     <CardDescription>Your personal task management sanctuary</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4">
-                    <Button onClick={signInWithGoogle} className="w-full" variant="outline">
+                     {!isConfigValid && (
+                        <Alert variant="destructive">
+                            <Terminal className="h-4 w-4" />
+                            <AlertTitle>Configuration Error</AlertTitle>
+                            <AlertDescription>
+                                Your Firebase environment variables are not set. Please follow the instructions in SETUP.md
+                            </AlertDescription>
+                        </Alert>
+                    )}
+                    <Button onClick={signInWithGoogle} className="w-full" variant="outline" disabled={!isConfigValid}>
                         <GoogleIcon className="mr-2 h-5 w-5" />
                         Sign in with Google
                     </Button>
-                    <Button onClick={signInAsGuest} className="w-full" variant="secondary">
+                    <Button onClick={signInAsGuest} className="w-full" variant="secondary" disabled={!isConfigValid}>
                         <GuestIcon className="mr-2 h-5 w-5" />
                         Continue as Guest
                     </Button>

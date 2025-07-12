@@ -8,7 +8,7 @@ import { type Task } from '@/types';
 import { useAuth } from '@/context/auth-provider';
 import { PlusCircle } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { collection, doc, addDoc, getDocs, updateDoc, deleteDoc, query, where, onSnapshot, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { collection, doc, addDoc, onSnapshot, updateDoc, deleteDoc, query, where, serverTimestamp, writeBatch } from 'firebase/firestore';
 
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -18,7 +18,7 @@ export default function DashboardPage() {
   const [loadingTasks, setLoadingTasks] = useState(true);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !db) {
       setLoadingTasks(false);
       return;
     };
@@ -41,6 +41,9 @@ export default function DashboardPage() {
       });
       setTasks(userTasks);
       setLoadingTasks(false);
+    }, (error) => {
+        console.error("Error fetching tasks:", error);
+        setLoadingTasks(false);
     });
 
     // Cleanup subscription on unmount
@@ -58,7 +61,7 @@ export default function DashboardPage() {
   };
 
   const handleSaveTask = async (taskData: Omit<Task, 'id' | 'userId'>, id?: string) => {
-    if (!user) return;
+    if (!user || !db) return;
     
     // Firestore converts Date objects to Timestamps, so we send the date object directly
     const dataToSave = {
@@ -82,16 +85,19 @@ export default function DashboardPage() {
   };
 
   const handleDeleteTask = async (id: string) => {
+    if (!db) return;
     const taskDocRef = doc(db, 'tasks', id);
     await deleteDoc(taskDocRef);
   };
   
   const handleUpdateTaskCompletion = async (id: string, completed: boolean) => {
+     if (!db) return;
      const taskDocRef = doc(db, 'tasks', id);
      await updateDoc(taskDocRef, { completed });
   };
   
   const handleUpdateSubtask = async (taskId: string, subtaskId: string, completed: boolean) => {
+    if (!db) return;
     const taskToUpdate = tasks.find(t => t.id === taskId);
     if (!taskToUpdate) return;
     

@@ -9,8 +9,9 @@ import {
   signOut as firebaseSignOut,
   signInAnonymously,
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { auth, isConfigValid } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
 
 interface AuthContextType {
   user: User | null;
@@ -26,8 +27,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const { toast } = useToast();
+
 
   useEffect(() => {
+    if (!isConfigValid || !auth) {
+      setLoading(false);
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
@@ -36,32 +43,40 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-      router.push('/dashboard');
-    } catch (error) {
-      console.error('Error signing in with Google:', error);
+  const handleAuthAction = async (authAction: () => Promise<any>, successRoute: string) => {
+    if (!isConfigValid || !auth) {
+      toast({
+        title: "Configuration Error",
+        description: "Firebase is not configured correctly. Please check the setup guide.",
+        variant: "destructive",
+      });
+      return;
     }
-  };
-  
-  const signInAsGuest = async () => {
     try {
-      await signInAnonymously(auth);
-      router.push('/dashboard');
-    } catch (error) {
-      console.error('Error signing in anonymously:', error);
+      await authAction();
+      router.push(successRoute);
+    } catch (error: any) {
+      console.error('Firebase Auth Error:', error);
+       toast({
+        title: "Authentication Failed",
+        description: error.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
     }
   };
 
+
+  const signInWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    await handleAuthAction(() => signInWithPopup(auth!, provider), '/dashboard');
+  };
+  
+  const signInAsGuest = async () => {
+    await handleAuthAction(() => signInAnonymously(auth!), '/dashboard');
+  };
+
   const signOut = async () => {
-    try {
-      await firebaseSignOut(auth);
-      router.push('/login');
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
+    await handleAuthAction(() => firebaseSignOut(auth!), '/login');
   };
 
   return (
